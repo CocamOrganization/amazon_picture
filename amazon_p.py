@@ -4,6 +4,7 @@ from lxml import etree
 import random
 from threading import Thread, Lock
 import queue
+import re
 # import io
 import csv
 import time
@@ -59,20 +60,31 @@ class amazon_p(object):
         asin = response['url'].split('/')[-1].strip('\n')
         if response['result'] == 'OK':
             html = etree.HTML(response['rp'].text)
-            asin1 = html.xpath('//*[contains(text(),  "ASIN")]/following-sibling::*[1]/text()')[0].strip('\n')
-            if asin1 == asin:
-                jpgs1 = html.xpath('//span[@class="a-button-text"]//img[contains(@src, "jpg")]/@src')
-                jpgs2 = html.xpath('//img[@class="product-image"]/@src')
-                jpgs = jpgs1 + jpgs2
-                for i, jpg_url in enumerate(jpgs):
-                    jpg_name = [f'{asin}.jpg' if i == 0 else f'{asin}_{i}.jpg'][0]
-                    jpg_rp = self.get_response(jpg_url)
-                    if jpg_rp['result'] == 'OK':
-                        yield {'asin': asin, 'result': 'OK', 'rp': jpg_rp['rp'], 'name': jpg_name}
-                    else:
-                        yield {'asin': asin, 'result': 'jpg_FAIL'}
-            else:
+            asin1 = html.xpath('//th[contains(text(),  "ASIN")]/following-sibling::*[1]/text()')
+            if len(asin1) == 0:
                 yield {'asin': asin, 'result': 'NG2'}
+            else:
+                asin1 = asin1[0].strip('\n')
+                if asin1 == asin:
+                    jpgs1 = html.xpath('//span[@class="a-button-text"]//img[contains(@src, "jpg")]/@src')
+                    # jpgs2 = html.xpath('//img[@class="product-image"]/@src')
+                    # jpgs3 = jpgs1 + jpgs2
+                    jpgs = []
+                    for j in jpgs1:
+                        pattern = j + '.*?"main":\{"(.*?jpg)"'
+                        ju = re.search(pattern, response['rp'].text).group(1)
+                        jpgs.append(ju.strip('\n'))
+                    if len(jpgs) == 0:
+                        yield {'asin': asin, 'result': 'No_Image'}
+                    for i, jpg_url in enumerate(jpgs):
+                        jpg_name = [f'{asin}.jpg' if i == 0 else f'{asin}_{i}.jpg'][0]
+                        jpg_rp = self.get_response(jpg_url)
+                        if jpg_rp['result'] == 'OK':
+                            yield {'asin': asin, 'result': 'OK', 'rp': jpg_rp['rp'], 'name': jpg_name}
+                        else:
+                            yield {'asin': asin, 'result': 'jpg_FAIL'}
+                else:
+                    yield {'asin': asin, 'result': 'NG2'}
         elif response['result'] == 'NG1':
             yield {'asin': asin, 'result': 'NG1'}
 
@@ -81,8 +93,12 @@ class amazon_p(object):
         # print(results)
         if results['result'] == 'OK':
             name = results['name']
-            with open(f'imgs/{name}', 'wb') as f:
-                f.write(results['rp'].content)
+            if '_' in name:
+                with open(f'imgs/side_picture/{name}', 'wb') as f:
+                    f.write(results['rp'].content)
+            else:
+                with open(f'imgs/main_picture/{name}', 'wb') as f:
+                    f.write(results['rp'].content)
 
     def record_inf(self, results):
         with open('records.csv', 'a', encoding='utf-8', newline='') as f:
